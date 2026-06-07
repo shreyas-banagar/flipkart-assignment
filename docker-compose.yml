@@ -9,6 +9,9 @@ services:
     env_file:
       - .env.docker
 
+    volumes:
+      - ./data/uploads/validations:/app/data/uploads/validations
+
     depends_on:
       - postgres
 

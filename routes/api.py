@@ -3,12 +3,14 @@ import tempfile
 import threading
 import uuid
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from database.db import SessionLocal
 from models.product import Product
+from models.verification_log import VerificationLog
+from models.user import User
 from services.api import ingest_products_from_path
 
 router = APIRouter(prefix="/api", tags=["ingest"])
@@ -53,6 +55,20 @@ def _get_product_table_count() -> int:
         db.close()
 
 
+def _verify_user_role(username: str, expected_role: str, db: Session) -> None:
+    user = db.scalars(select(User).where(User.username == username)).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"User with username '{username}' not found.",
+        )
+    if user.role != expected_role:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Access denied. Only users with role '{expected_role}' can perform this action.",
+        )
+
+
 def get_db():
     db = SessionLocal()
     try:
@@ -64,13 +80,17 @@ def get_db():
 @router.post("/ingest", summary="Ingest product CSV data", status_code=status.HTTP_202_ACCEPTED)
 async def ingest_data(
     background_tasks: BackgroundTasks,
+    username: str = Form(..., description="Username of the warehouse manager."),
     file: UploadFile = File(...),
     batch_size: int = Query(1000, gt=0, le=10000, description="Rows to write per database commit batch."),
+    db: Session = Depends(get_db),
 ):
     """Start ingestion of a CSV file in the background.
 
     The Swagger UI will render a browse button for file upload.
     """
+    _verify_user_role(username, "warehouse-manager", db)
+
     if file.content_type not in ("text/csv", "application/vnd.ms-excel"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -98,7 +118,13 @@ async def ingest_data(
 
 
 @router.get("/ingest/status/{task_id}", summary="Get ingestion job status")
-def get_ingest_status(task_id: str):
+def get_ingest_status(
+    task_id: str,
+    username: str = Query(..., description="Username of the warehouse manager."),
+    db: Session = Depends(get_db),
+):
+    _verify_user_role(username, "warehouse-manager", db)
+
     job = ingest_jobs.get(task_id)
     if job is None:
         raise HTTPException(
@@ -114,3 +140,53 @@ def get_ingest_status(task_id: str):
         }
 
     return job
+
+
+@router.post("/products/validate", summary="Validate product details on-the-floor", status_code=status.HTTP_200_OK)
+async def validate_product(
+    wid: str = Form(..., description="Unique Warehouse ID (from barcode)."),
+    username: str = Form(..., description="Username of the warehouse operator."),
+    file: UploadFile = File(..., description="Captured image of the physical product."),
+    db: Session = Depends(get_db),
+):
+    """Validate product details and log the validation event."""
+    _verify_user_role(username, "warehouse-operator", db)
+
+    product = db.scalars(select(Product).where(Product.wid == wid)).first()
+    if not product:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Product with WID '{wid}' not found.",
+        )
+
+    # Save uploaded file
+    upload_dir = os.path.join("data", "uploads", "validations")
+    os.makedirs(upload_dir, exist_ok=True)
+    
+    file_ext = os.path.splitext(file.filename or "")[1] or ".jpg"
+    unique_filename = f"{uuid.uuid4().hex}{file_ext}"
+    file_path = os.path.join(upload_dir, unique_filename)
+    
+    with open(file_path, "wb") as f:
+        while chunk := await file.read(1024 * 1024):
+            f.write(chunk)
+
+    # Log the verification event
+    db_file_path = file_path.replace("\\", "/")
+    log_entry = VerificationLog(
+        wid=wid,
+        user_id=username,
+        image_path=db_file_path,
+    )
+    db.add(log_entry)
+    db.commit()
+    db.refresh(log_entry)
+
+    return {
+        "wid": product.wid,
+        "ean": product.ean,
+        "manufacturing_date": product.manufacturing_date,
+        "expiry_date": product.expiry_date,
+        "verification_log_id": log_entry.id,
+        "verified_at": log_entry.verified_at,
+    }
