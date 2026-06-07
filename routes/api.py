@@ -2,6 +2,7 @@ import os
 import tempfile
 import threading
 import uuid
+import datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy import func, select
@@ -189,4 +190,44 @@ async def validate_product(
         "expiry_date": product.expiry_date,
         "verification_log_id": log_entry.id,
         "verified_at": log_entry.verified_at,
+    }
+
+
+@router.get("/reports/verification", summary="Generate verification report", status_code=status.HTTP_200_OK)
+def get_verification_report(
+    start_date: datetime.date = Query(..., description="Start date (YYYY-MM-DD)"),
+    end_date: datetime.date = Query(..., description="End date (YYYY-MM-DD)"),
+    username: str = Query(..., description="Username of the QA manager."),
+    db: Session = Depends(get_db),
+):
+    """Generate a report of all verification activities within a date range.
+    Only users with the quality-assurance-manager role can access this.
+    """
+    _verify_user_role(username, "quality-assurance-manager", db)
+
+    # Convert dates to datetime for correct filtering
+    start_datetime = datetime.datetime.combine(start_date, datetime.time.min)
+    end_datetime = datetime.datetime.combine(end_date, datetime.time.max)
+
+    logs = db.scalars(
+        select(VerificationLog)
+        .where(VerificationLog.verified_at >= start_datetime)
+        .where(VerificationLog.verified_at <= end_datetime)
+        .order_by(VerificationLog.verified_at.desc())
+    ).all()
+
+    return {
+        "start_date": start_date,
+        "end_date": end_date,
+        "total_verifications": len(logs),
+        "verifications": [
+            {
+                "id": log.id,
+                "wid": log.wid,
+                "operator_username": log.user_id,
+                "image_path": log.image_path,
+                "verified_at": log.verified_at,
+            }
+            for log in logs
+        ]
     }

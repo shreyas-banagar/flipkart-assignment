@@ -7,5 +7,5 @@ __pycache__
 *.pyc
 *.pyo
 *.pyd
-
+data/uploads/validations
 README.md
