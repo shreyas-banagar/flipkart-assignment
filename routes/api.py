@@ -27,7 +27,12 @@ def _run_ingest_job(task_id: str, file_path: str, batch_size: int) -> None:
     _update_job(task_id, status="running")
     db = SessionLocal()
     try:
-        ingested_rows = ingest_products_from_path(file_path, db, batch_size=batch_size)
+        def on_progress(count: int) -> None:
+            _update_job(task_id, ingested_rows=count)
+
+        ingested_rows = ingest_products_from_path(
+            file_path, db, batch_size=batch_size, on_progress=on_progress
+        )
         _update_job(task_id, status="succeeded", ingested_rows=ingested_rows)
     except Exception as exc:
         _update_job(task_id, status="failed", error=str(exc))
@@ -101,12 +106,11 @@ def get_ingest_status(task_id: str):
             detail="Ingestion task not found.",
         )
 
-    if job.get("baseline_rows") is not None and job["status"] in {"queued", "running"}:
+    if job.get("baseline_rows") is not None:
         current_rows = _get_product_table_count()
         job = {
             **job,
             "table_rows": current_rows,
-            "ingested_rows": max(0, current_rows - job["baseline_rows"]),
         }
 
     return job

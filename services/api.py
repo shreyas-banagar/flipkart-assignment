@@ -1,6 +1,7 @@
 import csv
 import datetime
 import io
+from typing import Callable
 
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import Date
@@ -52,7 +53,7 @@ def _get_ingest_metadata() -> tuple[list[str], set[str]]:
     return expected_fields, date_fields
 
 
-def _copy_products_from_path(file_path: str, expected_fields: list[str]) -> int:
+def _copy_products_from_path(file_path: str, expected_fields: list[str], on_progress: Callable[[int], None] = None) -> int:
     if psycopg is None:
         raise RuntimeError(
             "psycopg is required for PostgreSQL COPY. Install psycopg[binary] or use the standard ingest path."
@@ -73,15 +74,22 @@ def _copy_products_from_path(file_path: str, expected_fields: list[str]) -> int:
                         copy.write(chunk)
                         newline_count += chunk.count(b"\n")
                         last_chunk = chunk
+                        # Call on_progress with estimated number of lines written to COPY stream so far
+                        if on_progress:
+                            # subtract 1 for header line if it's already read
+                            on_progress(max(newline_count - 1, 0))
         raw_conn.commit()
     finally:
         raw_conn.close()
 
     line_count = newline_count + (1 if last_chunk and not last_chunk.endswith(b"\n") else 0)
-    return max(line_count - 1, 0)
+    final_count = max(line_count - 1, 0)
+    if on_progress:
+        on_progress(final_count)
+    return final_count
 
 
-def _ingest_from_reader(reader, expected_fields: list[str], date_fields: set[str], db: Session, batch_size: int) -> int:
+def _ingest_from_reader(reader, expected_fields: list[str], date_fields: set[str], db: Session, batch_size: int, on_progress: Callable[[int], None] = None) -> int:
     header = next(reader, None)
     if not header:
         raise HTTPException(
@@ -133,17 +141,21 @@ def _ingest_from_reader(reader, expected_fields: list[str], date_fields: set[str
             db.execute(insert_stmt, batch)
             db.commit()
             total += len(batch)
+            if on_progress:
+                on_progress(total)
             batch.clear()
 
     if batch:
         db.execute(insert_stmt, batch)
         db.commit()
         total += len(batch)
+        if on_progress:
+            on_progress(total)
 
     return total
 
 
-def ingest_products(file: UploadFile, db: Session, batch_size: int = 1000) -> int:
+def ingest_products(file: UploadFile, db: Session, batch_size: int = 1000, on_progress: Callable[[int], None] = None) -> int:
     """Read CSV rows from the uploaded file and persist products in batches."""
     try:
         file.file.seek(0)
@@ -153,17 +165,17 @@ def ingest_products(file: UploadFile, db: Session, batch_size: int = 1000) -> in
     expected_fields, date_fields = _get_ingest_metadata()
     text_stream = io.TextIOWrapper(file.file, encoding="utf-8", newline="")
     reader = csv.reader(text_stream)
-    return _ingest_from_reader(reader, expected_fields, date_fields, db, batch_size)
+    return _ingest_from_reader(reader, expected_fields, date_fields, db, batch_size, on_progress)
 
 
-def ingest_products_from_path(file_path: str, db: Session, batch_size: int = 1000) -> int:
+def ingest_products_from_path(file_path: str, db: Session, batch_size: int = 1000, on_progress: Callable[[int], None] = None) -> int:
     """Read CSV rows from a saved file path and persist products in batches."""
     expected_fields, date_fields = _get_ingest_metadata()
 
     if engine.dialect.name == "postgresql" and psycopg is not None:
-        return _copy_products_from_path(file_path, expected_fields)
+        return _copy_products_from_path(file_path, expected_fields, on_progress)
 
     with open(file_path, "rb") as file:
         text_stream = io.TextIOWrapper(file, encoding="utf-8", newline="")
         reader = csv.reader(text_stream)
-        return _ingest_from_reader(reader, expected_fields, date_fields, db, batch_size)
+        return _ingest_from_reader(reader, expected_fields, date_fields, db, batch_size, on_progress)
