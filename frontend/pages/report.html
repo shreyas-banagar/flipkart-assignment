@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Verification Report — Warehouse PVS</title>
+  <meta name="description" content="Generate date-range verification reports for quality assurance managers." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="../assets/css/style.css" />
+  <style>
+    .report-controls {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr auto auto;
+      gap: 1rem;
+      align-items: end;
+      margin-bottom: 1.5rem;
+    }
+
+    @media (max-width: 900px) {
+      .report-controls {
+        grid-template-columns: 1fr 1fr;
+      }
+      .report-controls .ctrl-span-full {
+        grid-column: 1 / -1;
+      }
+    }
+
+    @media (max-width: 560px) {
+      .report-controls {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* Date input styled like wh-input */
+    input[type="date"].wh-input {
+      color-scheme: dark;
+    }
+
+    /* Summary bar */
+    .summary-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+
+    .summary-count {
+      font-size: 0.9rem;
+      color: var(--clr-muted);
+    }
+
+    .summary-count strong {
+      color: var(--clr-heading);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* Table scroll container with fixed max-height */
+    .table-scroll {
+      max-height: 520px;
+      overflow-y: auto;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--clr-border);
+    }
+
+    .wh-table thead th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: var(--clr-surface-2);
+    }
+
+    /* Empty / loading states */
+    .empty-state {
+      text-align: center;
+      padding: 4rem 1rem;
+      color: var(--clr-muted);
+    }
+
+    .empty-state .empty-icon {
+      font-size: 3rem;
+      display: block;
+      margin-bottom: 1rem;
+      opacity: 0.6;
+    }
+
+    .empty-state p { font-size: 0.95rem; }
+
+    /* Row number column */
+    .row-num { color: var(--clr-muted); font-size: 0.8rem; }
+
+    .table-image-link {
+      color: var(--clr-info);
+      font-size: 0.8rem;
+      text-decoration: none;
+    }
+
+    .table-image-link:hover { color: var(--clr-accent); }
+
+    /* Skeleton loader rows */
+    @keyframes skeletonPulse {
+      0%, 100% { opacity: 0.4; }
+      50%       { opacity: 0.8; }
+    }
+
+    .skeleton-row td {
+      animation: skeletonPulse 1.4s ease infinite;
+    }
+
+    .skeleton-cell {
+      display: inline-block;
+      height: 14px;
+      border-radius: 3px;
+      background: var(--clr-border);
+    }
+
+    /* Loading overlay */
+    #loadingOverlay {
+      text-align: center;
+      padding: 3rem 1rem;
+      color: var(--clr-muted);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .report-date-range-display {
+      font-size: 0.8rem;
+      color: var(--clr-muted);
+      font-family: 'JetBrains Mono', monospace;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Topbar -->
+  <nav class="wh-topbar">
+    <a href="../index.html" class="wh-logo">
+      <div class="logo-icon">📦</div>
+      <span>Warehouse PVS</span>
+    </a>
+    <div class="wh-nav-links">
+      <a href="ingestion.html" class="wh-nav-link"><span>⬆</span><span>Ingestion</span></a>
+      <a href="operator.html" class="wh-nav-link"><span>🔍</span><span>Validate</span></a>
+      <a href="report.html" class="wh-nav-link active"><span>📊</span><span>Reports</span></a>
+    </div>
+  </nav>
+
+  <main class="wh-main">
+    <div class="page-header">
+      <h1>Verification Report</h1>
+      <p>Select a date range and generate a report of all verification activities.</p>
+    </div>
+
+    <!-- Controls -->
+    <div class="wh-card" style="margin-bottom:1.5rem;">
+      <div class="report-controls">
+        <div>
+          <label class="wh-label" for="qaUsername">QA Manager</label>
+          <select class="wh-select" id="qaUsername">
+            <option value="">— Select user —</option>
+            <option value="qa_1">qa_1</option>
+            <option value="qa_2">qa_2</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="wh-label" for="startDate">Start Date</label>
+          <input class="wh-input" type="date" id="startDate" />
+        </div>
+
+        <div>
+          <label class="wh-label" for="endDate">End Date</label>
+          <input class="wh-input" type="date" id="endDate" />
+        </div>
+
+        <div class="ctrl-span-full" style="display:flex;gap:0.6rem;align-items:flex-end;">
+          <button class="wh-btn wh-btn-primary" id="generateBtn" onclick="generateReport()" style="flex:1;">
+            <span id="genIcon">📊</span>
+            <span id="genLabel">Generate Report</span>
+          </button>
+          <button class="wh-btn wh-btn-secondary" id="downloadBtn"
+            onclick="downloadCSV()" title="Download full report as CSV" disabled>
+            ⬇ CSV
+          </button>
+        </div>
+      </div>
+
+      <div id="ctrlError" class="wh-alert wh-alert-error d-none" role="alert"></div>
+
+      <!-- Quick range shortcuts -->
+      <div style="display:flex;flex-wrap:wrap;gap:0.5rem;margin-top:0.9rem;padding-top:0.9rem;border-top:1px solid var(--clr-border);">
+        <span style="font-size:0.8rem;color:var(--clr-muted);align-self:center;">Quick range:</span>
+        <button class="wh-page-btn" onclick="setRange(7)">Last 7 days</button>
+        <button class="wh-page-btn" onclick="setRange(30)">Last 30 days</button>
+        <button class="wh-page-btn" onclick="setRange(90)">Last 90 days</button>
+        <button class="wh-page-btn" onclick="setThisMonth()">This month</button>
+      </div>
+    </div>
+
+    <!-- Results -->
+    <div id="resultsSection">
+
+      <!-- Empty prompt -->
+      <div class="empty-state" id="emptyPrompt">
+        <span class="empty-icon">📋</span>
+        <p>Select a date range and click <strong>Generate Report</strong> to view verifications.</p>
+      </div>
+
+      <!-- Loading -->
+      <div id="loadingOverlay" class="d-none">
+        <span class="wh-spinner" style="width:32px;height:32px;border-width:3px;color:var(--clr-accent);"></span>
+        <span>Loading report…</span>
+      </div>
+
+      <!-- Report output -->
+      <div id="reportOutput" class="d-none">
+
+        <!-- Summary bar -->
+        <div class="summary-bar">
+          <div>
+            <div class="summary-count">
+              Showing <strong id="showingFrom">—</strong>–<strong id="showingTo">—</strong>
+              of <strong id="totalCount">—</strong> verifications
+            </div>
+            <div class="report-date-range-display" id="dateRangeDisplay"></div>
+          </div>
+          <div style="display:flex;gap:0.5rem;align-items:center;">
+            <span id="pageInfo" class="summary-count"></span>
+          </div>
+        </div>
+
+        <!-- Scrollable table -->
+        <div class="table-scroll">
+          <table class="wh-table" id="reportTable">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Log ID</th>
+                <th>WID</th>
+                <th>Operator</th>
+                <th>Verified At</th>
+                <th>Image</th>
+              </tr>
+            </thead>
+            <tbody id="reportBody"></tbody>
+          </table>
+        </div>
+
+        <!-- Pagination -->
+        <div class="wh-pagination" id="paginationBar" style="margin-top:1rem;">
+          <div class="wh-pagination-info" id="paginationInfo"></div>
+          <div class="wh-pagination-btns" id="paginationBtns"></div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <script src="../assets/js/api.js"></script>
+  <script>
+    const PAGE_SIZE = 25;
+    let allData   = [];
+    let currentPg = 1;
+    let totalPgs  = 1;
+
+    /* ---- Date helpers ---- */
+    function todayStr() {
+      return new Date().toISOString().split('T')[0];
+    }
+
+    function daysAgoStr(n) {
+      const d = new Date();
+      d.setDate(d.getDate() - n);
+      return d.toISOString().split('T')[0];
+    }
+
+    function setRange(days) {
+      document.getElementById('startDate').value = daysAgoStr(days);
+      document.getElementById('endDate').value   = todayStr();
+    }
+
+    function setThisMonth() {
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = String(now.getMonth() + 1).padStart(2, '0');
+      document.getElementById('startDate').value = `${y}-${m}-01`;
+      document.getElementById('endDate').value   = todayStr();
+    }
+
+    /* ---- Initialize defaults ---- */
+    window.addEventListener('DOMContentLoaded', () => {
+      setRange(30); // default to last 30 days
+    });
+
+    /* ---- UI helpers ---- */
+    function setError(msg) {
+      const el = document.getElementById('ctrlError');
+      if (msg) { el.textContent = '⚠ ' + msg; el.classList.remove('d-none'); }
+      else      { el.classList.add('d-none'); }
+    }
+
+    function setGenLoading(on) {
+      const btn   = document.getElementById('generateBtn');
+      const icon  = document.getElementById('genIcon');
+      const label = document.getElementById('genLabel');
+      btn.disabled = on;
+      icon.innerHTML = on ? '<span class="wh-spinner" style="color:#000;"></span>' : '📊';
+      label.textContent = on ? 'Loading…' : 'Generate Report';
+    }
+
+    function showState(state) {
+      document.getElementById('emptyPrompt').classList.add('d-none');
+      document.getElementById('loadingOverlay').classList.add('d-none');
+      document.getElementById('reportOutput').classList.add('d-none');
+      if (state === 'empty')   document.getElementById('emptyPrompt').classList.remove('d-none');
+      if (state === 'loading') document.getElementById('loadingOverlay').classList.remove('d-none');
+      if (state === 'report')  document.getElementById('reportOutput').classList.remove('d-none');
+    }
+
+    /* ---- Generate ---- */
+    async function generateReport() {
+      setError('');
+      const username  = document.getElementById('qaUsername').value;
+      const startDate = document.getElementById('startDate').value;
+      const endDate   = document.getElementById('endDate').value;
+
+      if (!username)  { setError('Please select a QA manager.'); return; }
+      if (!startDate) { setError('Please select a start date.'); return; }
+      if (!endDate)   { setError('Please select an end date.'); return; }
+      if (startDate > endDate) { setError('Start date must be before or equal to end date.'); return; }
+
+      setGenLoading(true);
+      showState('loading');
+
+      try {
+        const res = await apiGetReport(startDate, endDate, username);
+        allData   = res.verifications ?? [];
+        currentPg = 1;
+        totalPgs  = Math.max(1, Math.ceil(allData.length / PAGE_SIZE));
+
+        document.getElementById('totalCount').textContent = res.total_verifications ?? allData.length;
+        document.getElementById('dateRangeDisplay').textContent = `${fmtDate(startDate)} → ${fmtDate(endDate)}`;
+        document.getElementById('downloadBtn').disabled = allData.length === 0;
+
+        renderPage(1);
+        showState('report');
+      } catch (err) {
+        setError(err.message);
+        showState('empty');
+      } finally {
+        setGenLoading(false);
+      }
+    }
+
+    /* ---- Render page ---- */
+    function renderPage(pg) {
+      currentPg = pg;
+      const start  = (pg - 1) * PAGE_SIZE;
+      const end    = Math.min(start + PAGE_SIZE, allData.length);
+      const slice  = allData.slice(start, end);
+
+      document.getElementById('showingFrom').textContent = allData.length ? start + 1 : 0;
+      document.getElementById('showingTo').textContent   = end;
+
+      const tbody = document.getElementById('reportBody');
+      tbody.innerHTML = '';
+
+      if (allData.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="6" style="text-align:center;padding:2.5rem;color:var(--clr-muted);">
+              No verification activities found for this date range.
+            </td>
+          </tr>`;
+      } else {
+        slice.forEach((row, i) => {
+          const globalIdx = start + i + 1;
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td class="row-num">${globalIdx}</td>
+            <td class="mono" style="font-size:0.82rem;color:var(--clr-muted);">${row.id}</td>
+            <td class="mono" style="font-weight:600;color:var(--clr-heading);">${escHtml(row.wid ?? '—')}</td>
+            <td>${escHtml(row.operator_username ?? '—')}</td>
+            <td style="white-space:nowrap;font-size:0.85rem;">${fmtDateTime(row.verified_at)}</td>
+            <td>
+              ${row.image_path
+                ? `<a class="table-image-link" href="/uploads/${row.image_path.replace(/^.*validations[/\\]/, '')}"
+                       target="_blank" rel="noopener">📎 View</a>`
+                : '<span style="color:var(--clr-muted);font-size:0.8rem;">—</span>'}
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+      }
+
+      renderPagination();
+    }
+
+    /* ---- Pagination ---- */
+    function renderPagination() {
+      totalPgs = Math.max(1, Math.ceil(allData.length / PAGE_SIZE));
+      const info = document.getElementById('paginationInfo');
+      const btns = document.getElementById('paginationBtns');
+
+      info.textContent = `Page ${currentPg} of ${totalPgs}`;
+      btns.innerHTML   = '';
+
+      const addBtn = (label, pg, active = false, disabled = false) => {
+        const b = document.createElement('button');
+        b.className = `wh-page-btn${active ? ' active' : ''}`;
+        b.textContent = label;
+        b.disabled = disabled;
+        if (!disabled && !active) b.addEventListener('click', () => renderPage(pg));
+        btns.appendChild(b);
+      };
+
+      addBtn('‹ Prev', currentPg - 1, false, currentPg <= 1);
+
+      // Page number buttons (show up to 7)
+      const winHalf = 3;
+      let pgStart = Math.max(1, currentPg - winHalf);
+      let pgEnd   = Math.min(totalPgs, currentPg + winHalf);
+
+      if (pgStart > 1) { addBtn('1', 1); if (pgStart > 2) { const e = document.createElement('span'); e.style.cssText = 'padding:0 4px;color:var(--clr-muted);font-size:0.85rem;'; e.textContent = '…'; btns.appendChild(e); } }
+      for (let p = pgStart; p <= pgEnd; p++) addBtn(p, p, p === currentPg);
+      if (pgEnd < totalPgs) { if (pgEnd < totalPgs - 1) { const e = document.createElement('span'); e.style.cssText = 'padding:0 4px;color:var(--clr-muted);font-size:0.85rem;'; e.textContent = '…'; btns.appendChild(e); } addBtn(totalPgs, totalPgs); }
+
+      addBtn('Next ›', currentPg + 1, false, currentPg >= totalPgs);
+    }
+
+    /* ---- CSV Download ---- */
+    function downloadCSV() {
+      if (!allData.length) return;
+
+      const header = ['Log ID', 'WID', 'Operator', 'Verified At', 'Image Path'];
+      const rows = allData.map(r => [
+        r.id,
+        r.wid ?? '',
+        r.operator_username ?? '',
+        r.verified_at ?? '',
+        r.image_path ?? '',
+      ].map(v => `"${String(v).replace(/"/g, '""')}"`));
+
+      const csv = [header, ...rows].map(r => r.join(',')).join('\r\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url  = URL.createObjectURL(blob);
+
+      const startDate = document.getElementById('startDate').value;
+      const endDate   = document.getElementById('endDate').value;
+      const filename  = `verification_report_${startDate}_to_${endDate}.csv`;
+
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    /* ---- Sanitize ---- */
+    function escHtml(s) {
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+  </script>
+</body>
+</html>

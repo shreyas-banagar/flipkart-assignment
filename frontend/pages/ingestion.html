@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bulk Ingestion — Warehouse PVS</title>
+  <meta name="description" content="Upload a CSV file to bulk-import product inventory data into the warehouse system." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="../assets/css/style.css" />
+  <style>
+    .ingest-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+      align-items: start;
+    }
+
+    @media (max-width: 768px) {
+      .ingest-grid { grid-template-columns: 1fr; }
+    }
+
+    /* Progress panel */
+    .progress-panel {
+      background: var(--clr-surface);
+      border: 1px solid var(--clr-border);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+    }
+
+    .progress-panel-header {
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--clr-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .progress-panel-body {
+      padding: 1.25rem;
+    }
+
+    .progress-label-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.5rem;
+    }
+
+    .progress-label {
+      font-size: 0.85rem;
+      color: var(--clr-muted);
+    }
+
+    .progress-count {
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--clr-text);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .log-stream {
+      background: var(--clr-bg);
+      border: 1px solid var(--clr-border);
+      border-radius: var(--radius-sm);
+      padding: 0.75rem 1rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8rem;
+      color: var(--clr-muted);
+      max-height: 180px;
+      overflow-y: auto;
+      margin-top: 1rem;
+      line-height: 1.7;
+    }
+
+    .log-stream .log-line { display: block; }
+    .log-stream .log-line.success { color: var(--clr-success); }
+    .log-stream .log-line.error   { color: var(--clr-danger); }
+    .log-stream .log-line.info    { color: var(--clr-info); }
+    .log-stream .log-line.accent  { color: var(--clr-accent); }
+    .log-stream .log-line.warning { color: var(--clr-warning); }
+
+    .batch-help {
+      font-size: 0.78rem;
+      color: var(--clr-muted);
+      margin-top: 0.35rem;
+    }
+
+    .csv-hint {
+      background: var(--clr-surface-2);
+      border: 1px solid var(--clr-border);
+      border-radius: var(--radius-sm);
+      padding: 0.9rem 1rem;
+      margin-top: 1rem;
+    }
+
+    .csv-hint-title {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--clr-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 0.5rem;
+    }
+
+    .csv-cols {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+    }
+
+    .csv-col-tag {
+      background: rgba(245,158,11,0.08);
+      border: 1px solid rgba(245,158,11,0.2);
+      color: var(--clr-accent);
+      border-radius: 4px;
+      padding: 0.2rem 0.55rem;
+      font-size: 0.78rem;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* Phase indicator */
+    .phase-indicator {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-top: 0.75rem;
+      padding: 0.6rem 0.9rem;
+      border-radius: var(--radius-sm);
+      font-size: 0.82rem;
+      font-weight: 500;
+      transition: all 0.3s ease;
+    }
+
+    .phase-indicator.phase-copying {
+      background: rgba(59,130,246,0.08);
+      border: 1px solid rgba(59,130,246,0.2);
+      color: var(--clr-info);
+    }
+
+    .phase-indicator.phase-committing {
+      background: rgba(245,158,11,0.08);
+      border: 1px solid rgba(245,158,11,0.2);
+      color: var(--clr-accent);
+    }
+
+    .phase-indicator.phase-done {
+      background: rgba(16,185,129,0.08);
+      border: 1px solid rgba(16,185,129,0.2);
+      color: var(--clr-success);
+    }
+
+    /* Indeterminate progress bar (pulse animation) */
+    .wh-progress-bar.indeterminate {
+      width: 100% !important;
+      background: linear-gradient(90deg, var(--clr-accent-dim), var(--clr-accent), var(--clr-accent-glow), var(--clr-accent), var(--clr-accent-dim));
+      background-size: 200% 100%;
+      animation: indeterminate-slide 1.8s ease infinite;
+    }
+
+    @keyframes indeterminate-slide {
+      0%   { background-position: 100% 0; }
+      100% { background-position: -100% 0; }
+    }
+
+    /* ---- Reset / Danger zone ---- */
+    .danger-zone {
+      margin-top: 1rem;
+      border: 1px solid rgba(239,68,68,0.25);
+      border-radius: var(--radius-md);
+      background: rgba(239,68,68,0.04);
+      padding: 1rem 1.25rem;
+    }
+
+    .danger-zone-title {
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--clr-danger);
+      margin-bottom: 0.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .danger-zone p {
+      font-size: 0.82rem;
+      color: var(--clr-muted);
+      margin-bottom: 0.85rem;
+      line-height: 1.5;
+    }
+
+    /* ---- Modal ---- */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.65);
+      backdrop-filter: blur(4px);
+      z-index: 500;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+    }
+
+    .modal-backdrop.open {
+      opacity: 1;
+      pointer-events: all;
+    }
+
+    .modal {
+      background: var(--clr-surface);
+      border: 1px solid var(--clr-border);
+      border-radius: var(--radius-lg);
+      padding: 2rem;
+      max-width: 440px;
+      width: 90%;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+      transform: translateY(16px) scale(0.97);
+      transition: transform 0.2s ease;
+    }
+
+    .modal-backdrop.open .modal {
+      transform: translateY(0) scale(1);
+    }
+
+    .modal-icon {
+      width: 52px;
+      height: 52px;
+      background: rgba(239,68,68,0.12);
+      border: 1px solid rgba(239,68,68,0.25);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .modal h3 {
+      font-size: 1.15rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+    }
+
+    .modal p {
+      font-size: 0.9rem;
+      color: var(--clr-muted);
+      line-height: 1.6;
+      margin-bottom: 1rem;
+    }
+
+    .modal-warning-box {
+      background: rgba(239,68,68,0.06);
+      border: 1px solid rgba(239,68,68,0.2);
+      border-radius: var(--radius-sm);
+      padding: 0.75rem 1rem;
+      font-size: 0.82rem;
+      color: #fca5a5;
+      margin-bottom: 1.25rem;
+      line-height: 1.5;
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 0.75rem;
+    }
+
+    .modal-actions .wh-btn {
+      flex: 1;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Topbar -->
+  <nav class="wh-topbar">
+    <a href="../index.html" class="wh-logo">
+      <div class="logo-icon">📦</div>
+      <span>Warehouse PVS</span>
+    </a>
+    <div class="wh-nav-links">
+      <a href="ingestion.html" class="wh-nav-link active">
+        <span>⬆</span><span>Ingestion</span>
+      </a>
+      <a href="operator.html" class="wh-nav-link">
+        <span>🔍</span><span>Validate</span>
+      </a>
+      <a href="report.html" class="wh-nav-link">
+        <span>📊</span><span>Reports</span>
+      </a>
+    </div>
+  </nav>
+
+  <main class="wh-main">
+    <div class="page-header">
+      <h1>Bulk Product Ingestion</h1>
+      <p>Upload a CSV file to import product inventory data. Progress is tracked in real time.</p>
+    </div>
+
+    <div class="ingest-grid">
+      <!-- ---- LEFT: Upload form ---- -->
+      <div>
+        <div class="wh-card">
+          <div class="wh-card-title">Upload Configuration</div>
+
+          <div style="margin-bottom:1.1rem;">
+            <label class="wh-label" for="username">Warehouse Manager</label>
+            <select class="wh-select" id="username">
+              <option value="">— Select user —</option>
+              <option value="manager_1">manager_1</option>
+              <option value="manager_2">manager_2</option>
+            </select>
+          </div>
+
+          <div style="margin-bottom:1.1rem;">
+            <label class="wh-label" for="batchSize">Batch Size</label>
+            <input class="wh-input" type="number" id="batchSize"
+              value="1000" min="100" max="10000" step="100" />
+            <p class="batch-help">Rows committed per database transaction. Larger = faster but more memory.</p>
+          </div>
+
+          <div style="margin-bottom:1.25rem;">
+            <label class="wh-label">CSV File</label>
+            <div class="wh-dropzone" id="dropzone">
+              <input type="file" id="csvFile" accept=".csv,text/csv" />
+              <span class="dz-icon">📄</span>
+              <p class="dz-text"><strong>Click to browse</strong> or drag &amp; drop your CSV file here</p>
+              <div class="dz-filename d-none" id="dzFilename">
+                <span>✓</span><span id="dzFilenameText"></span>
+              </div>
+            </div>
+          </div>
+
+          <div id="formError" class="wh-alert wh-alert-error d-none" role="alert"></div>
+
+          <button class="wh-btn wh-btn-primary wh-btn-full wh-btn-lg" id="submitBtn"
+            onclick="startIngestion()">
+            <span id="submitIcon">⬆</span>
+            <span id="submitLabel">Start Ingestion</span>
+          </button>
+
+          <!-- CSV schema hint -->
+          <div class="csv-hint">
+            <div class="csv-hint-title">Expected CSV Columns</div>
+            <div class="csv-cols">
+              <span class="csv-col-tag">WID</span>
+              <span class="csv-col-tag">EAN</span>
+              <span class="csv-col-tag">Manufacturing_Date</span>
+              <span class="csv-col-tag">Expiry_Date</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Danger Zone -->
+        <div class="danger-zone">
+          <div class="danger-zone-title">⚠ Danger Zone</div>
+          <p>
+            Reset clears <strong>all products and verification logs</strong> from the database
+            so you can re-ingest from scratch. This action cannot be undone.
+          </p>
+          <button class="wh-btn wh-btn-danger wh-btn-full" id="resetBtn" onclick="openResetModal()">
+            <span>🗑</span>
+            <span>Reset Application</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- ---- RIGHT: Progress panel ---- -->
+      <div>
+        <div class="progress-panel" id="progressPanel">
+          <div class="progress-panel-header">
+            <span class="wh-card-title" style="margin-bottom:0;">Live Progress</span>
+            <span class="wh-badge wh-badge-queued" id="statusBadge">
+              <span>Idle</span>
+            </span>
+          </div>
+          <div class="progress-panel-body">
+
+            <!-- Stats -->
+            <div class="wh-stats" id="statsRow">
+              <div class="wh-stat">
+                <div class="wh-stat-label">Ingested Rows</div>
+                <div class="wh-stat-value" id="statIngested">—</div>
+              </div>
+              <div class="wh-stat">
+                <div class="wh-stat-label">Table Total</div>
+                <div class="wh-stat-value" id="statTotal">—</div>
+              </div>
+              <div class="wh-stat">
+                <div class="wh-stat-label">Batch Size</div>
+                <div class="wh-stat-value" id="statBatch">—</div>
+              </div>
+            </div>
+
+            <!-- Progress bar -->
+            <div style="margin-top:1.25rem;">
+              <div class="progress-label-row">
+                <span class="progress-label" id="progressLabel">Waiting for job to start…</span>
+                <span class="progress-count" id="progressPct">0%</span>
+              </div>
+              <div class="wh-progress-wrap">
+                <div class="wh-progress-bar" id="progressBar" style="width:0%"></div>
+              </div>
+            </div>
+
+            <!-- Phase indicator (hidden when idle) -->
+            <div class="phase-indicator d-none" id="phaseIndicator"></div>
+
+            <!-- Log stream -->
+            <div class="log-stream" id="logStream">
+              <span class="log-line text-muted">System ready. Awaiting ingestion job…</span>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ---- Reset Confirmation Modal ---- -->
+  <div class="modal-backdrop" id="resetModalBackdrop" role="dialog" aria-modal="true" aria-labelledby="resetModalTitle">
+    <div class="modal">
+      <div class="modal-icon">🗑</div>
+      <h3 id="resetModalTitle">Reset Application</h3>
+      <p>
+        You are about to permanently delete <strong>all product records</strong> and
+        <strong>all verification logs</strong> from the database.
+      </p>
+      <div class="modal-warning-box">
+        ⚠ This action is <strong>irreversible</strong>. All ingested data will be lost.
+        Make sure you have a backup before proceeding.
+      </div>
+
+      <div style="margin-bottom:1rem;">
+        <label class="wh-label" for="resetUsername">Confirm as Warehouse Manager</label>
+        <select class="wh-select" id="resetUsername">
+          <option value="">— Select user —</option>
+          <option value="manager_1">manager_1</option>
+          <option value="manager_2">manager_2</option>
+        </select>
+      </div>
+
+      <div id="resetError" class="wh-alert wh-alert-error d-none" style="margin-bottom:1rem;" role="alert"></div>
+
+      <div class="modal-actions">
+        <button class="wh-btn wh-btn-secondary" id="resetCancelBtn" onclick="closeResetModal()">Cancel</button>
+        <button class="wh-btn wh-btn-danger" id="resetConfirmBtn" onclick="confirmReset()">
+          <span id="resetBtnIcon">🗑</span>
+          <span id="resetBtnLabel">Yes, Reset Everything</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="../assets/js/api.js"></script>
+  <script>
+    /* ---- Dropzone interactions ---- */
+    const dropzone   = document.getElementById('dropzone');
+    const csvInput   = document.getElementById('csvFile');
+    const dzFilename = document.getElementById('dzFilename');
+    const dzNameText = document.getElementById('dzFilenameText');
+
+    csvInput.addEventListener('change', () => {
+      const f = csvInput.files[0];
+      if (f) {
+        dzFilename.classList.remove('d-none');
+        dzNameText.textContent = `${f.name} (${(f.size / 1024 / 1024).toFixed(2)} MB)`;
+      }
+    });
+
+    ['dragover', 'dragenter'].forEach(ev =>
+      dropzone.addEventListener(ev, e => { e.preventDefault(); dropzone.classList.add('drag-over'); })
+    );
+    ['dragleave', 'drop'].forEach(ev =>
+      dropzone.addEventListener(ev, () => dropzone.classList.remove('drag-over'))
+    );
+
+    /* ---- State ---- */
+    let pollTimer   = null;
+    let currentTask = null;
+    let currentUser = null;
+    // Estimated total rows from file size (used for real % during 'copying' phase)
+    let estimatedTotal = 0;
+
+    /* ---- Helpers ---- */
+    function setError(msg) {
+      const el = document.getElementById('formError');
+      if (msg) { el.textContent = '⚠ ' + msg; el.classList.remove('d-none'); }
+      else      { el.classList.add('d-none'); }
+    }
+
+    function appendLog(text, cls = '') {
+      const el   = document.getElementById('logStream');
+      const line = document.createElement('span');
+      line.className = `log-line${cls ? ' ' + cls : ''}`;
+      const ts = new Date().toLocaleTimeString('en-IN');
+      line.textContent = `[${ts}]  ${text}`;
+      el.appendChild(line);
+      el.scrollTop = el.scrollHeight;
+    }
+
+    function updateBadge(st) {
+      const badge = document.getElementById('statusBadge');
+      const map = {
+        idle:      ['wh-badge-queued',  'Idle'],
+        queued:    ['wh-badge-queued',  '⏳ Queued'],
+        running:   ['wh-badge-running', '<span class="pulse"></span> Running'],
+        succeeded: ['wh-badge-success', '✓ Succeeded'],
+        failed:    ['wh-badge-failed',  '✗ Failed'],
+      };
+      const [cls, html] = map[st] ?? map.idle;
+      badge.className = `wh-badge ${cls}`;
+      badge.innerHTML = html;
+    }
+
+    function setProgressBar(pct, label, indeterminate = false) {
+      const bar = document.getElementById('progressBar');
+      if (indeterminate) {
+        bar.classList.add('indeterminate');
+        bar.style.width = '100%';
+        document.getElementById('progressPct').textContent = '…';
+      } else {
+        bar.classList.remove('indeterminate');
+        bar.style.width = `${pct}%`;
+        document.getElementById('progressPct').textContent = `${Math.round(pct)}%`;
+      }
+      document.getElementById('progressLabel').textContent = label;
+    }
+
+    function setPhaseIndicator(phase) {
+      const el = document.getElementById('phaseIndicator');
+      const phases = {
+        queued:     null,
+        copying:    { cls: 'phase-copying',    icon: '📡', text: 'Phase 1 / 2 — Streaming rows into PostgreSQL (COPY)' },
+        committing: { cls: 'phase-committing', icon: '⚙',  text: 'Phase 2 / 2 — Building indexes & flushing WAL to disk — please wait…' },
+        done:       null,
+      };
+      const info = phases[phase];
+      if (!info) { el.className = 'phase-indicator d-none'; return; }
+      el.className = `phase-indicator ${info.cls}`;
+      el.innerHTML = `<span>${info.icon}</span><span>${info.text}</span>`;
+    }
+
+    function setSubmitLoading(loading) {
+      const btn   = document.getElementById('submitBtn');
+      const icon  = document.getElementById('submitIcon');
+      const label = document.getElementById('submitLabel');
+      if (loading) {
+        btn.disabled = true;
+        icon.innerHTML = '<span class="wh-spinner"></span>';
+        label.textContent = 'Processing…';
+      } else {
+        btn.disabled = false;
+        icon.textContent = '⬆';
+        label.textContent = 'Start Ingestion';
+      }
+    }
+
+    /* Rough estimate: average row ~40 bytes (4 fields). Used only for real-% during copying. */
+    function estimateRowsFromFileSize(bytes) {
+      return Math.max(Math.round(bytes / 40), 1);
+    }
+
+    /* ---- Submit ---- */
+    async function startIngestion() {
+      setError('');
+      const username  = document.getElementById('username').value;
+      const batchSize = document.getElementById('batchSize').value;
+      const file      = csvInput.files[0];
+
+      if (!username) { setError('Please select a warehouse manager.'); return; }
+      if (!file)     { setError('Please select a CSV file.'); return; }
+
+      estimatedTotal = estimateRowsFromFileSize(file.size);
+
+      setSubmitLoading(true);
+      const logEl = document.getElementById('logStream');
+      logEl.innerHTML = '';
+      setPhaseIndicator('');
+      document.getElementById('phaseIndicator').className = 'phase-indicator d-none';
+
+      appendLog(`Starting ingestion as ${username}…`, 'info');
+      appendLog(`File: ${file.name} (${(file.size/1024/1024).toFixed(2)} MB) — est. ~${estimatedTotal.toLocaleString()} rows`, 'info');
+      appendLog(`Batch size: ${batchSize}`, 'info');
+
+      const fd = new FormData();
+      fd.append('username', username);
+      fd.append('file', file);
+
+      try {
+        const res = await apiFetch(`/ingest?batch_size=${batchSize}`, { method: 'POST', body: fd });
+        currentTask = res.task_id;
+        currentUser = username;
+        appendLog(`Job accepted — Task ID: ${currentTask}`, 'accent');
+        updateBadge('queued');
+        document.getElementById('statBatch').textContent = batchSize;
+        pollStatus();
+      } catch (err) {
+        setError(err.message);
+        appendLog(`Error: ${err.message}`, 'error');
+        setSubmitLoading(false);
+        updateBadge('failed');
+      }
+    }
+
+    /* ---- Polling ---- */
+    let _lastPhase = '';
+    let _lastIngested = 0;
+
+    async function pollStatus() {
+      if (!currentTask) return;
+
+      try {
+        const job = await apiIngestStatus(currentTask, currentUser);
+        const st    = job.status;
+        const phase = job.phase ?? 'copying';
+        const ingested = job.ingested_rows ?? 0;
+
+        document.getElementById('statIngested').textContent =
+          ingested != null ? ingested.toLocaleString() : '—';
+        document.getElementById('statTotal').textContent =
+          job.table_rows != null ? job.table_rows.toLocaleString() : '—';
+
+        updateBadge(st === 'running' ? 'running' : st);
+
+        if (st === 'queued') {
+          setProgressBar(2, 'Job is queued, waiting to start…');
+          if (_lastPhase !== 'queued') appendLog('Job queued, waiting for worker…');
+          _lastPhase = 'queued';
+
+        } else if (st === 'running') {
+          if (phase === 'copying') {
+            // Real percentage using estimated total from file size
+            const pct = estimatedTotal > 0
+              ? Math.min(99, Math.round((ingested / estimatedTotal) * 100))
+              : Math.min(99, Math.round((ingested / 1000) * 0.05));
+            setProgressBar(pct, `Streaming rows to DB… ${ingested.toLocaleString()} rows so far`);
+            if (_lastPhase !== 'copying') appendLog('Phase 1 / 2: Streaming CSV rows via PostgreSQL COPY…', 'info');
+            if (ingested !== _lastIngested) {
+              appendLog(`Copying — ${ingested.toLocaleString()} rows streamed`, 'info');
+            }
+          } else if (phase === 'committing') {
+            // DB is building indexes + flushing WAL — show indeterminate bar
+            setProgressBar(100, 'Finalizing — building indexes & committing to disk…', true);
+            if (_lastPhase !== 'committing') {
+              appendLog(`Phase 2 / 2: All ${ingested.toLocaleString()} rows streamed. Building indexes & committing — this may take several minutes for large datasets.`, 'warning');
+            }
+          }
+          _lastPhase = phase;
+          _lastIngested = ingested;
+
+        } else if (st === 'succeeded') {
+          setProgressBar(100, 'Ingestion complete!');
+          setPhaseIndicator('done');
+          document.getElementById('phaseIndicator').className = 'phase-indicator phase-done';
+          document.getElementById('phaseIndicator').innerHTML = '✓ All phases complete — data committed successfully';
+          appendLog(`✓ Succeeded — ${job.ingested_rows?.toLocaleString()} rows ingested`, 'success');
+          appendLog(`Total rows in table: ${job.table_rows?.toLocaleString()}`, 'success');
+          setSubmitLoading(false);
+          _lastPhase = '';
+          _lastIngested = 0;
+          return; // stop polling
+
+        } else if (st === 'failed') {
+          setProgressBar(0, 'Ingestion failed.');
+          document.getElementById('phaseIndicator').className = 'phase-indicator d-none';
+          appendLog(`✗ Failed: ${job.error ?? 'Unknown error'}`, 'error');
+          setError(job.error ?? 'Ingestion failed.');
+          setSubmitLoading(false);
+          _lastPhase = '';
+          _lastIngested = 0;
+          return; // stop polling
+        }
+
+        // Continue polling
+        pollTimer = setTimeout(pollStatus, 1500);
+      } catch (err) {
+        appendLog(`Polling error: ${err.message}`, 'error');
+        pollTimer = setTimeout(pollStatus, 3000);
+      }
+    }
+
+    /* ---- Reset Modal ---- */
+    function openResetModal() {
+      document.getElementById('resetError').classList.add('d-none');
+      document.getElementById('resetUsername').value = '';
+      const backdrop = document.getElementById('resetModalBackdrop');
+      backdrop.classList.add('open');
+    }
+
+    function closeResetModal() {
+      document.getElementById('resetModalBackdrop').classList.remove('open');
+      setResetLoading(false);
+    }
+
+    function setResetLoading(loading) {
+      const btn   = document.getElementById('resetConfirmBtn');
+      const icon  = document.getElementById('resetBtnIcon');
+      const label = document.getElementById('resetBtnLabel');
+      btn.disabled = loading;
+      if (loading) {
+        icon.innerHTML = '<span class="wh-spinner"></span>';
+        label.textContent = 'Resetting…';
+      } else {
+        icon.textContent = '🗑';
+        label.textContent = 'Yes, Reset Everything';
+      }
+    }
+
+    async function confirmReset() {
+      const errEl    = document.getElementById('resetError');
+      const username = document.getElementById('resetUsername').value;
+      errEl.classList.add('d-none');
+
+      if (!username) {
+        errEl.textContent = '⚠ Please select a warehouse manager to authorize the reset.';
+        errEl.classList.remove('d-none');
+        return;
+      }
+
+      setResetLoading(true);
+      try {
+        await apiReset(username);
+        closeResetModal();
+        // Reset all progress UI
+        document.getElementById('statIngested').textContent = '—';
+        document.getElementById('statTotal').textContent    = '—';
+        document.getElementById('statBatch').textContent    = '—';
+        setProgressBar(0, 'Waiting for job to start…');
+        document.getElementById('phaseIndicator').className = 'phase-indicator d-none';
+        updateBadge('idle');
+        currentTask = null;
+        currentUser = null;
+        _lastPhase  = '';
+        _lastIngested = 0;
+        if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+        const logEl = document.getElementById('logStream');
+        logEl.innerHTML = '';
+        appendLog('✓ Database reset successfully. All product and verification log data cleared.', 'success');
+        appendLog('You may now upload a fresh CSV file to re-ingest.', 'info');
+        setSubmitLoading(false);
+      } catch (err) {
+        setResetLoading(false);
+        errEl.textContent = '⚠ ' + err.message;
+        errEl.classList.remove('d-none');
+      }
+    }
+
+    /* Close modal on backdrop click */
+    document.getElementById('resetModalBackdrop').addEventListener('click', function(e) {
+      if (e.target === this) closeResetModal();
+    });
+
+    /* Close modal on Escape */
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') closeResetModal();
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Warehouse PVS — Product Verification System</title>
+  <meta name="description" content="Flipkart Warehouse Product Verification System — manage bulk ingestion, on-floor validation, and QA reporting." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="assets/css/style.css" />
+  <style>
+    .hero {
+      min-height: calc(100vh - 65px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      text-align: center;
+      padding: 2rem 1rem;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 60% 50% at 50% 0%, rgba(245,158,11,0.08) 0%, transparent 70%),
+        radial-gradient(ellipse 40% 30% at 80% 80%, rgba(59,130,246,0.05) 0%, transparent 60%);
+      pointer-events: none;
+    }
+
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: rgba(245,158,11,0.1);
+      border: 1px solid rgba(245,158,11,0.25);
+      color: var(--clr-accent);
+      padding: 0.4rem 1rem;
+      border-radius: 100px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 1.5rem;
+      animation: fadeIn 0.5s ease;
+    }
+
+    .hero h1 {
+      font-size: clamp(2rem, 5vw, 3.5rem);
+      font-weight: 800;
+      line-height: 1.15;
+      letter-spacing: -0.03em;
+      margin-bottom: 1rem;
+      animation: fadeIn 0.5s ease 0.1s both;
+    }
+
+    .hero h1 span {
+      background: linear-gradient(135deg, var(--clr-accent), var(--clr-accent-glow));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero-sub {
+      font-size: 1.1rem;
+      color: var(--clr-muted);
+      max-width: 520px;
+      margin-bottom: 3rem;
+      animation: fadeIn 0.5s ease 0.2s both;
+    }
+
+    .hero-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 1.25rem;
+      width: 100%;
+      max-width: 900px;
+      animation: fadeIn 0.5s ease 0.3s both;
+    }
+
+    .hero-card {
+      background: var(--clr-surface);
+      border: 1px solid var(--clr-border);
+      border-radius: var(--radius-lg);
+      padding: 1.75rem 1.5rem;
+      text-decoration: none;
+      color: inherit;
+      transition: all 0.25s ease;
+      text-align: left;
+      position: relative;
+      overflow: hidden;
+      display: block;
+    }
+
+    .hero-card::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, rgba(245,158,11,0.06), transparent);
+      opacity: 0;
+      transition: opacity 0.25s ease;
+    }
+
+    .hero-card:hover {
+      border-color: var(--clr-accent);
+      transform: translateY(-4px);
+      box-shadow: 0 12px 40px rgba(0,0,0,0.4), 0 0 20px rgba(245,158,11,0.1);
+    }
+
+    .hero-card:hover::before { opacity: 1; }
+
+    .hero-card-icon {
+      width: 52px;
+      height: 52px;
+      border-radius: var(--radius-md);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.5rem;
+      margin-bottom: 1.1rem;
+    }
+
+    .icon-orange { background: rgba(245,158,11,0.12); }
+    .icon-blue   { background: rgba(59,130,246,0.12); }
+    .icon-green  { background: rgba(16,185,129,0.12); }
+
+    .hero-card h3 {
+      font-size: 1.1rem;
+      font-weight: 700;
+      margin-bottom: 0.4rem;
+    }
+
+    .hero-card p {
+      font-size: 0.875rem;
+      color: var(--clr-muted);
+      line-height: 1.5;
+    }
+
+    .hero-card .card-role {
+      display: inline-block;
+      margin-top: 1rem;
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: var(--clr-accent);
+      opacity: 0.8;
+    }
+
+    .hero-card .card-arrow {
+      position: absolute;
+      top: 1.25rem;
+      right: 1.25rem;
+      color: var(--clr-muted);
+      font-size: 1.1rem;
+      transition: var(--transition);
+    }
+
+    .hero-card:hover .card-arrow {
+      color: var(--clr-accent);
+      transform: translate(2px, -2px);
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(16px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Topbar -->
+  <nav class="wh-topbar">
+    <a href="index.html" class="wh-logo">
+      <div class="logo-icon">📦</div>
+      <span>Warehouse PVS</span>
+    </a>
+    <div class="wh-nav-links">
+      <a href="pages/ingestion.html" class="wh-nav-link">
+        <span>⬆</span><span>Ingestion</span>
+      </a>
+      <a href="pages/operator.html" class="wh-nav-link">
+        <span>🔍</span><span>Validate</span>
+      </a>
+      <a href="pages/report.html" class="wh-nav-link">
+        <span>📊</span><span>Reports</span>
+      </a>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <main class="hero">
+    <div class="hero-badge">
+      <span>🏭</span> Flipkart Logistics Platform
+    </div>
+    <h1>Product <span>Verification</span><br/>System</h1>
+    <p class="hero-sub">
+      A unified platform for bulk data ingestion, on-floor product validation,
+      and quality assurance reporting across warehouse operations.
+    </p>
+    <div class="hero-cards">
+      <a href="pages/ingestion.html" class="hero-card">
+        <span class="card-arrow">↗</span>
+        <div class="hero-card-icon icon-orange">⬆</div>
+        <h3>Bulk Ingestion</h3>
+        <p>Upload large CSV files to populate inventory with product WID, EAN, and date data.</p>
+        <span class="card-role">Warehouse Manager</span>
+      </a>
+      <a href="pages/operator.html" class="hero-card">
+        <span class="card-arrow">↗</span>
+        <div class="hero-card-icon icon-blue">🔍</div>
+        <h3>Product Validation</h3>
+        <p>Scan a product's WID on the warehouse floor to instantly verify its details and capture an image.</p>
+        <span class="card-role">Warehouse Operator</span>
+      </a>
+      <a href="pages/report.html" class="hero-card">
+        <span class="card-arrow">↗</span>
+        <div class="hero-card-icon icon-green">📊</div>
+        <h3>Verification Reports</h3>
+        <p>Generate date-ranged reports of all verification activities for compliance tracking.</p>
+        <span class="card-role">QA Manager</span>
+      </a>
+    </div>
+  </main>
+
+</body>
+</html>

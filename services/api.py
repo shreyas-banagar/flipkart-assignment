@@ -53,7 +53,7 @@ def _get_ingest_metadata() -> tuple[list[str], set[str]]:
     return expected_fields, date_fields
 
 
-def _copy_products_from_path(file_path: str, expected_fields: list[str], on_progress: Callable[[int], None] = None) -> int:
+def _copy_products_from_path(file_path: str, expected_fields: list[str], on_progress: Callable[..., None] = None) -> int:
     if psycopg is None:
         raise RuntimeError(
             "psycopg is required for PostgreSQL COPY. Install psycopg[binary] or use the standard ingest path."
@@ -70,26 +70,33 @@ def _copy_products_from_path(file_path: str, expected_fields: list[str], on_prog
             last_chunk = b""
             with open(file_path, "rb") as file:
                 with cursor.copy(copy_sql) as copy:
-                    while chunk := file.read(16 * 1024):
+                    # Use 256 KB chunks for better throughput vs the old 16 KB
+                    while chunk := file.read(256 * 1024):
                         copy.write(chunk)
                         newline_count += chunk.count(b"\n")
                         last_chunk = chunk
-                        # Call on_progress with estimated number of lines written to COPY stream so far
+                        # Subtract 1 for the header row already consumed
                         if on_progress:
-                            # subtract 1 for header line if it's already read
-                            on_progress(max(newline_count - 1, 0))
+                            on_progress(max(newline_count - 1, 0), phase="copying")
+
+            # All data is streamed — now PostgreSQL is building indexes and
+            # flushing WAL (can take minutes for 10M rows). Signal this phase
+            # so the frontend can show an indeterminate "Finalizing" bar.
+            line_count = newline_count + (1 if last_chunk and not last_chunk.endswith(b"\n") else 0)
+            final_count = max(line_count - 1, 0)
+            if on_progress:
+                on_progress(final_count, phase="committing")
+
         raw_conn.commit()
     finally:
         raw_conn.close()
 
-    line_count = newline_count + (1 if last_chunk and not last_chunk.endswith(b"\n") else 0)
-    final_count = max(line_count - 1, 0)
     if on_progress:
-        on_progress(final_count)
+        on_progress(final_count, phase="done")
     return final_count
 
 
-def _ingest_from_reader(reader, expected_fields: list[str], date_fields: set[str], db: Session, batch_size: int, on_progress: Callable[[int], None] = None) -> int:
+def _ingest_from_reader(reader, expected_fields: list[str], date_fields: set[str], db: Session, batch_size: int, on_progress: Callable[..., None] = None) -> int:
     header = next(reader, None)
     if not header:
         raise HTTPException(
@@ -142,7 +149,7 @@ def _ingest_from_reader(reader, expected_fields: list[str], date_fields: set[str
             db.commit()
             total += len(batch)
             if on_progress:
-                on_progress(total)
+                on_progress(total, phase="copying")
             batch.clear()
 
     if batch:
@@ -150,12 +157,12 @@ def _ingest_from_reader(reader, expected_fields: list[str], date_fields: set[str
         db.commit()
         total += len(batch)
         if on_progress:
-            on_progress(total)
+            on_progress(total, phase="done")
 
     return total
 
 
-def ingest_products(file: UploadFile, db: Session, batch_size: int = 1000, on_progress: Callable[[int], None] = None) -> int:
+def ingest_products(file: UploadFile, db: Session, batch_size: int = 1000, on_progress: Callable[..., None] = None) -> int:
     """Read CSV rows from the uploaded file and persist products in batches."""
     try:
         file.file.seek(0)
@@ -168,7 +175,7 @@ def ingest_products(file: UploadFile, db: Session, batch_size: int = 1000, on_pr
     return _ingest_from_reader(reader, expected_fields, date_fields, db, batch_size, on_progress)
 
 
-def ingest_products_from_path(file_path: str, db: Session, batch_size: int = 1000, on_progress: Callable[[int], None] = None) -> int:
+def ingest_products_from_path(file_path: str, db: Session, batch_size: int = 1000, on_progress: Callable[..., None] = None) -> int:
     """Read CSV rows from a saved file path and persist products in batches."""
     expected_fields, date_fields = _get_ingest_metadata()
 

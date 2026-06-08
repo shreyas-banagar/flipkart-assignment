@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>Product Validation — Warehouse PVS</title>
+  <meta name="description" content="Warehouse operator product validation screen — scan WID and capture product image." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="../assets/css/style.css" />
+  <style>
+    /* Mobile-first layout — everything stacks vertically */
+    body { background: var(--clr-bg); }
+
+    .op-wrap {
+      max-width: 500px;
+      margin: 0 auto;
+      padding: 1.25rem 1rem 3rem;
+    }
+
+    /* Large touch-friendly inputs */
+    .op-input {
+      width: 100%;
+      background: var(--clr-surface-2);
+      border: 2px solid var(--clr-border);
+      border-radius: var(--radius-md);
+      color: var(--clr-text);
+      padding: 1rem 1.1rem;
+      font-size: 1.15rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 500;
+      transition: var(--transition);
+      outline: none;
+      letter-spacing: 0.04em;
+    }
+
+    .op-input:focus {
+      border-color: var(--clr-accent);
+      box-shadow: 0 0 0 4px rgba(245,158,11,0.12);
+    }
+
+    .op-select {
+      width: 100%;
+      background: var(--clr-surface-2);
+      border: 2px solid var(--clr-border);
+      border-radius: var(--radius-md);
+      color: var(--clr-text);
+      padding: 1rem 2.5rem 1rem 1.1rem;
+      font-size: 1rem;
+      font-family: 'Inter', sans-serif;
+      font-weight: 500;
+      transition: var(--transition);
+      outline: none;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%2364748b' d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 1rem center;
+      cursor: pointer;
+    }
+
+    .op-select:focus {
+      border-color: var(--clr-accent);
+      box-shadow: 0 0 0 4px rgba(245,158,11,0.12);
+    }
+
+    .op-select option { background: var(--clr-surface-2); }
+
+    /* WID input row */
+    .wid-row {
+      display: flex;
+      gap: 0.6rem;
+      align-items: stretch;
+    }
+
+    .wid-row .op-input { flex: 1; }
+
+    .scan-btn {
+      background: var(--clr-surface-2);
+      border: 2px solid var(--clr-border);
+      border-radius: var(--radius-md);
+      color: var(--clr-accent);
+      font-size: 1.4rem;
+      padding: 0 1rem;
+      cursor: pointer;
+      transition: var(--transition);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .scan-btn:hover { border-color: var(--clr-accent); background: rgba(245,158,11,0.08); }
+
+    /* Camera / image capture */
+    .camera-zone {
+      border: 2px dashed var(--clr-border);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      position: relative;
+      cursor: pointer;
+      transition: var(--transition);
+      min-height: 160px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 0.5rem;
+      text-align: center;
+      padding: 1.5rem;
+    }
+
+    .camera-zone:hover { border-color: var(--clr-accent); background: rgba(245,158,11,0.04); }
+    .camera-zone.has-image { border-style: solid; border-color: var(--clr-success); padding: 0; }
+
+    .camera-zone input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+      height: 100%;
+    }
+
+    .camera-zone img {
+      width: 100%;
+      max-height: 240px;
+      object-fit: cover;
+      display: block;
+      border-radius: calc(var(--radius-md) - 2px);
+    }
+
+    .camera-zone .cam-overlay {
+      position: absolute;
+      bottom: 0.6rem;
+      right: 0.6rem;
+      background: rgba(0,0,0,0.6);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: var(--radius-sm);
+      padding: 0.3rem 0.6rem;
+      font-size: 0.75rem;
+      color: #fff;
+      backdrop-filter: blur(4px);
+      pointer-events: none;
+    }
+
+    .cam-icon { font-size: 2.5rem; }
+    .cam-text { font-size: 0.9rem; color: var(--clr-muted); }
+    .cam-text strong { color: var(--clr-accent); }
+
+    /* Submit button — big & accessible */
+    .op-submit {
+      width: 100%;
+      padding: 1.1rem;
+      font-size: 1.1rem;
+      font-weight: 700;
+      border-radius: var(--radius-md);
+      background: linear-gradient(135deg, var(--clr-accent), var(--clr-accent-dim));
+      color: #000;
+      border: none;
+      cursor: pointer;
+      transition: var(--transition);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.6rem;
+      letter-spacing: 0.01em;
+    }
+
+    .op-submit:hover:not(:disabled) {
+      box-shadow: 0 0 24px rgba(245,158,11,0.35);
+      transform: translateY(-2px);
+    }
+
+    .op-submit:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+    /* Result card */
+    .result-card { animation: slideUp 0.35s ease; }
+
+    .result-ean-wrap {
+      background: var(--clr-bg);
+      border-radius: var(--radius-sm);
+      padding: 0.75rem 1rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1.3rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      color: var(--clr-heading);
+      word-break: break-all;
+    }
+
+    .expiry-warn {
+      background: rgba(239,68,68,0.08);
+      border: 1px solid rgba(239,68,68,0.25);
+      border-radius: var(--radius-sm);
+      padding: 0.65rem 1rem;
+      color: #fca5a5;
+      font-size: 0.875rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .expiry-ok {
+      background: rgba(16,185,129,0.08);
+      border: 1px solid rgba(16,185,129,0.25);
+      border-radius: var(--radius-sm);
+      padding: 0.65rem 1rem;
+      color: #6ee7b7;
+      font-size: 0.875rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    /* Field spacing */
+    .field-group { margin-bottom: 1.1rem; }
+    .op-label {
+      display: block;
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--clr-muted);
+      margin-bottom: 0.45rem;
+    }
+
+    /* Section divider */
+    .section-sep {
+      border: none;
+      border-top: 1px solid var(--clr-border);
+      margin: 1.5rem 0;
+    }
+
+    /* Mobile topbar: simplified */
+    @media (max-width: 480px) {
+      .wh-nav-link span:last-child { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Topbar -->
+  <nav class="wh-topbar">
+    <a href="../index.html" class="wh-logo">
+      <div class="logo-icon">📦</div>
+      <span>Warehouse PVS</span>
+    </a>
+    <div class="wh-nav-links">
+      <a href="ingestion.html" class="wh-nav-link"><span>⬆</span><span>Ingestion</span></a>
+      <a href="operator.html" class="wh-nav-link active"><span>🔍</span><span>Validate</span></a>
+      <a href="report.html" class="wh-nav-link"><span>📊</span><span>Reports</span></a>
+    </div>
+  </nav>
+
+  <main class="op-wrap">
+    <div class="page-header">
+      <h1>Product Validation</h1>
+      <p>Scan or type a WID to verify product details.</p>
+    </div>
+
+    <!-- ---- Form ---- -->
+    <div class="wh-card" style="margin-bottom:1.25rem;">
+      <div class="wh-card-title">Operator Details</div>
+
+      <div class="field-group">
+        <label class="op-label" for="opUsername">Operator</label>
+        <select class="op-select" id="opUsername">
+          <option value="">— Select operator —</option>
+          <option value="operator_1">operator_1</option>
+          <option value="operator_2">operator_2</option>
+          <option value="operator_3">operator_3</option>
+          <option value="operator_4">operator_4</option>
+          <option value="operator_5">operator_5</option>
+          <option value="operator_6">operator_6</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="wh-card" style="margin-bottom:1.25rem;">
+      <div class="wh-card-title">Scan Product</div>
+
+      <div class="field-group">
+        <label class="op-label" for="widInput">Warehouse ID (WID)</label>
+        <div class="wid-row">
+          <input class="op-input" type="text" id="widInput"
+            placeholder="e.g. WID-000123"
+            autocomplete="off" autocorrect="off" spellcheck="false"
+            inputmode="text" />
+          <button class="scan-btn" title="Focus to type / scan barcode" aria-label="Scan barcode"
+            onclick="document.getElementById('widInput').focus()">
+            ▮▯▮▯
+          </button>
+        </div>
+        <p style="font-size:0.78rem;color:var(--clr-muted);margin-top:0.4rem;">
+          Use a barcode scanner (acts as keyboard) or type the WID manually.
+        </p>
+      </div>
+
+      <hr class="section-sep" />
+
+      <div class="field-group">
+        <label class="op-label">Product Photo</label>
+        <div class="camera-zone" id="cameraZone">
+          <input type="file" id="productImage"
+            accept="image/*" capture="environment"
+            onchange="handleImageSelect(event)" />
+          <span class="cam-icon">📷</span>
+          <p class="cam-text"><strong>Tap to open camera</strong><br/>or select a photo</p>
+        </div>
+      </div>
+    </div>
+
+    <div id="formError" class="wh-alert wh-alert-error d-none" style="margin-bottom:1rem;" role="alert"></div>
+
+    <button class="op-submit" id="validateBtn" onclick="validateProduct()">
+      <span id="validateIcon">🔍</span>
+      <span id="validateLabel">Verify Product</span>
+    </button>
+
+    <!-- ---- Result ---- -->
+    <div id="resultSection" class="d-none" style="margin-top:1.5rem;">
+      <div class="wh-card result-card" id="resultCard">
+        <div class="wh-card-title">Verification Result</div>
+
+        <div class="field-group">
+          <div class="op-label">EAN (Barcode ID)</div>
+          <div class="result-ean-wrap" id="resEAN">—</div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.9rem;margin-bottom:1rem;">
+          <div>
+            <div class="op-label">Manufacturing Date</div>
+            <div style="font-size:1rem;font-weight:600;font-family:'JetBrains Mono',monospace;color:var(--clr-heading);" id="resMfgDate">—</div>
+          </div>
+          <div>
+            <div class="op-label">Expiry Date</div>
+            <div style="font-size:1rem;font-weight:600;font-family:'JetBrains Mono',monospace;color:var(--clr-heading);" id="resExpDate">—</div>
+          </div>
+        </div>
+
+        <div id="expiryStatus" style="margin-bottom:1rem;"></div>
+
+        <div style="border-top:1px solid var(--clr-border);padding-top:0.9rem;">
+          <div class="op-label">Verified At</div>
+          <div style="font-size:0.875rem;color:var(--clr-muted);font-family:'JetBrains Mono',monospace;" id="resVerifiedAt">—</div>
+        </div>
+
+        <div style="border-top:1px solid var(--clr-border);padding-top:0.9rem;margin-top:0.75rem;">
+          <div class="op-label">Log Entry ID</div>
+          <div style="font-size:0.875rem;color:var(--clr-muted);font-family:'JetBrains Mono',monospace;" id="resLogId">—</div>
+        </div>
+      </div>
+
+      <button class="op-submit" style="margin-top:1rem;background:var(--clr-surface-2);color:var(--clr-text);border:2px solid var(--clr-border);"
+        onclick="resetForm()">
+        ↩ Validate Another Product
+      </button>
+    </div>
+  </main>
+
+  <script src="../assets/js/api.js"></script>
+  <script>
+    /* ---- Image preview ---- */
+    function handleImageSelect(evt) {
+      const file = evt.target.files[0];
+      if (!file) return;
+
+      const zone = document.getElementById('cameraZone');
+      zone.classList.add('has-image');
+
+      // Remove old content
+      zone.querySelectorAll('.cam-icon, .cam-text').forEach(el => el.remove());
+
+      // Show preview
+      let img = zone.querySelector('img');
+      if (!img) {
+        img = document.createElement('img');
+        zone.insertBefore(img, zone.querySelector('input'));
+      }
+      img.src = URL.createObjectURL(file);
+      img.alt = 'Product image preview';
+
+      // Overlay
+      let overlay = zone.querySelector('.cam-overlay');
+      if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.className = 'cam-overlay';
+        zone.appendChild(overlay);
+      }
+      overlay.textContent = '✎ Change photo';
+    }
+
+    /* ---- Submit ---- */
+    function setLoading(on) {
+      const btn   = document.getElementById('validateBtn');
+      const icon  = document.getElementById('validateIcon');
+      const label = document.getElementById('validateLabel');
+      btn.disabled = on;
+      if (on) {
+        icon.innerHTML = '<span class="wh-spinner"></span>';
+        label.textContent = 'Verifying…';
+      } else {
+        icon.textContent = '🔍';
+        label.textContent = 'Verify Product';
+      }
+    }
+
+    function setError(msg) {
+      const el = document.getElementById('formError');
+      if (msg) { el.textContent = '⚠ ' + msg; el.classList.remove('d-none'); }
+      else      { el.classList.add('d-none'); }
+    }
+
+    async function validateProduct() {
+      setError('');
+      const username = document.getElementById('opUsername').value;
+      const wid      = document.getElementById('widInput').value.trim();
+      const file     = document.getElementById('productImage').files[0];
+
+      if (!username)  { setError('Please select an operator.'); return; }
+      if (!wid)       { setError('Please enter or scan a WID.'); return; }
+      if (!file)      { setError('Please capture a product photo.'); return; }
+
+      setLoading(true);
+      document.getElementById('resultSection').classList.add('d-none');
+
+      const fd = new FormData();
+      fd.append('wid', wid);
+      fd.append('username', username);
+      fd.append('file', file);
+
+      try {
+        const data = await apiValidateProduct(fd);
+        renderResult(data);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    function renderResult(d) {
+      document.getElementById('resEAN').textContent     = d.ean ?? '—';
+      document.getElementById('resMfgDate').textContent = fmtDate(d.manufacturing_date);
+      document.getElementById('resExpDate').textContent = fmtDate(d.expiry_date);
+      document.getElementById('resVerifiedAt').textContent = fmtDateTime(d.verified_at);
+      document.getElementById('resLogId').textContent   = d.verification_log_id ?? '—';
+
+      // Expiry color coding
+      const days = daysUntilExpiry(d.expiry_date);
+      const el   = document.getElementById('expiryStatus');
+      if (days === null) {
+        el.innerHTML = '';
+      } else if (days < 0) {
+        el.innerHTML = `<div class="expiry-warn">⚠ Product EXPIRED ${Math.abs(days)} days ago</div>`;
+      } else if (days <= 30) {
+        el.innerHTML = `<div class="expiry-warn">⚠ Expires in ${days} day${days !== 1 ? 's' : ''} — review required</div>`;
+      } else {
+        el.innerHTML = `<div class="expiry-ok">✓ Valid — expires in ${days} days</div>`;
+      }
+
+      document.getElementById('resultSection').classList.remove('d-none');
+      document.getElementById('resultSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    /* ---- Reset ---- */
+    function resetForm() {
+      document.getElementById('widInput').value = '';
+      document.getElementById('productImage').value = '';
+      document.getElementById('resultSection').classList.add('d-none');
+      setError('');
+
+      // Reset camera zone
+      const zone = document.getElementById('cameraZone');
+      zone.classList.remove('has-image');
+      zone.querySelector('img')?.remove();
+      zone.querySelector('.cam-overlay')?.remove();
+      zone.insertAdjacentHTML('beforeend', `
+        <span class="cam-icon">📷</span>
+        <p class="cam-text"><strong>Tap to open camera</strong><br/>or select a photo</p>
+      `);
+
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      document.getElementById('widInput').focus();
+    }
+
+    /* ---- Auto-focus WID on page load (great for barcode scanners) ---- */
+    window.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('widInput').focus();
+    });
+
+    /* ---- Allow Enter on WID field to submit ---- */
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('widInput').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') validateProduct();
+      });
+    });
+  </script>
+</body>
+</html>

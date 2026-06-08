@@ -10,11 +10,24 @@ services:
       - .env.docker
 
     volumes:
-      - ./data/uploads/validations:/app/data/uploads/validations
+      - validation_uploads:/app/data/uploads/validations
 
     depends_on:
       - postgres
 
+  frontend:
+    build: ./frontend
+    container_name: flipkart-frontend
+
+    ports:
+      - "3000:80"
+
+    volumes:
+      # Serve uploaded product images via Nginx /uploads/ path
+      - validation_uploads:/app/uploads:ro
+
+    depends_on:
+      - backend
 
   postgres:
     image: postgres:17
@@ -49,3 +62,4 @@ services:
 
 volumes:
   postgres_data:
+  validation_uploads:

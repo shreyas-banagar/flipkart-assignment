@@ -5,7 +5,7 @@ import uuid
 import datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from database.db import SessionLocal
@@ -27,18 +27,18 @@ def _update_job(task_id: str, **fields: object) -> None:
 
 
 def _run_ingest_job(task_id: str, file_path: str, batch_size: int) -> None:
-    _update_job(task_id, status="running")
+    _update_job(task_id, status="running", phase="copying")
     db = SessionLocal()
     try:
-        def on_progress(count: int) -> None:
-            _update_job(task_id, ingested_rows=count)
+        def on_progress(count: int, *, phase: str = "copying") -> None:
+            _update_job(task_id, ingested_rows=count, phase=phase)
 
         ingested_rows = ingest_products_from_path(
             file_path, db, batch_size=batch_size, on_progress=on_progress
         )
-        _update_job(task_id, status="succeeded", ingested_rows=ingested_rows)
+        _update_job(task_id, status="succeeded", ingested_rows=ingested_rows, phase="done")
     except Exception as exc:
-        _update_job(task_id, status="failed", error=str(exc))
+        _update_job(task_id, status="failed", error=str(exc), phase="done")
     finally:
         db.close()
         try:
@@ -108,6 +108,7 @@ async def ingest_data(
     with ingest_jobs_lock:
         ingest_jobs[task_id] = {
             "status": "queued",
+            "phase": "queued",
             "batch_size": batch_size,
             "ingested_rows": 0,
             "baseline_rows": baseline_rows,
@@ -231,3 +232,28 @@ def get_verification_report(
             for log in logs
         ]
     }
+
+
+@router.delete("/reset", summary="Reset product database", status_code=status.HTTP_200_OK)
+def reset_database(
+    username: str = Query(..., description="Username of the warehouse manager."),
+    confirm: bool = Query(False, description="Must be true to execute the reset."),
+    db: Session = Depends(get_db),
+):
+    """Truncate the products table (CASCADE) to allow re-ingestion.
+
+    This will also delete all verification logs that reference products.
+    Only warehouse-managers may perform this action and `confirm=true` must be passed.
+    """
+    _verify_user_role(username, "warehouse-manager", db)
+
+    if not confirm:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Pass confirm=true to execute the reset. This action is irreversible.",
+        )
+
+    db.execute(text("TRUNCATE TABLE products CASCADE"))
+    db.commit()
+
+    return {"status": "ok", "message": "Products table truncated. All product and verification log data has been cleared."}
